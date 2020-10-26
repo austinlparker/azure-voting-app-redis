@@ -5,7 +5,18 @@ import redis
 import socket
 import sys
 
+from opentelemetry.launcher import configure_opentelemetry
+from opentelemetry import trace
+from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.wsgi import OpenTelemetryMiddleware
+
+configure_opentelemetry(
+    service_name="aks-vote",
+    service_version="0.1.0"
+)
+
 app = Flask(__name__)
+app.wsgi_app = OpenTelemetryMiddleware(app.wsgi_app)
 
 # Load configurations from environment or config file
 app.config.from_pyfile('config_file.cfg')
@@ -40,6 +51,7 @@ try:
 except redis.ConnectionError:
     exit('Failed to connect to Redis, terminating.')
 
+RedisInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
 # Change title to host name to demo NLB
 if app.config['SHOWHOST'] == "true":
     title = socket.gethostname()
