@@ -5,18 +5,42 @@ import redis
 import socket
 import sys
 
-from opentelemetry.launcher import configure_opentelemetry
+# import opentelemetry libraries
 from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace.export import SimpleExportSpanProcessor
+from opentelemetry.exporter.otlp.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.redis import RedisInstrumentor
-from opentelemetry.instrumentation.wsgi import OpenTelemetryMiddleware
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
 
-configure_opentelemetry(
-    service_name="aks-vote",
-    service_version="0.1.0"
+from opentelemetry import propagators
+from opentelemetry.propagators import set_global_textmap
+from opentelemetry.propagators.composite import CompositeHTTPPropagator
+from opentelemetry.sdk.trace.propagation.b3_format import B3Format
+
+# use b3 headers, as that's what envoy emits
+set_global_textmap(CompositeHTTPPropagator([B3Format()]))
+
+# resource name is required for lightstep and many other exporters
+resource = Resource(attributes={
+    "service.name": "azure-vote"
+})
+
+# send spans to the ambassador-deployed opentelemetry collector
+span_exporter = OTLPSpanExporter(
+    endpoint=os.environ['OTEL_EXPORTER_OTLP_SPAN_ENDPOINT']
 )
 
+# configure opentelemetry trace provider and export pipeline
+tracer_provider = TracerProvider(resource=resource)
+trace.set_tracer_provider(tracer_provider)
+span_processor = SimpleExportSpanProcessor(span_exporter)
+tracer_provider.add_span_processor(span_processor)
+
 app = Flask(__name__)
-app.wsgi_app = OpenTelemetryMiddleware(app.wsgi_app)
+# add flask instrumentation
+FlaskInstrumentor().instrument_app(app)
 
 # Load configurations from environment or config file
 app.config.from_pyfile('config_file.cfg')
@@ -51,7 +75,9 @@ try:
 except redis.ConnectionError:
     exit('Failed to connect to Redis, terminating.')
 
+# add redis instrumentation
 RedisInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
+
 # Change title to host name to demo NLB
 if app.config['SHOWHOST'] == "true":
     title = socket.gethostname()
