@@ -1,9 +1,10 @@
-FROM tiangolo/uwsgi-nginx-flask:python3.8
-RUN pip install redis
-RUN pip install opentelemetry-api
-RUN pip install opentelemetry-sdk
-RUN pip install opentelemetry-exporter-otlp
-RUN pip install opentelemetry-instrumentation
-RUN pip install opentelemetry-instrumentation-flask
-RUN pip install opentelemetry-instrumentation-redis
-ADD /azure-vote /app
+FROM python:3
+
+WORKDIR /usr/src/app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY ./azure-vote .
+EXPOSE 5000
+CMD [ "python", "./main.py" ]
